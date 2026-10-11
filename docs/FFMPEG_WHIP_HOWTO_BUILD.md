@@ -11,6 +11,24 @@ An ffmpeg 8.1-series (`ffmpeg-rockchip` commit `d90e3a1`) with: `h264_rkmpp` enc
 `whip` muxer (DTLS through OpenSSL), `https`/`tls`, and `libvpx` (VP8) and `libvpx-vp9`. The `whip` muxer accepts H.264
 only (VP8 and VP9 were rejected in the tests).
 
+## Quick way: one script
+
+Everything below is done by `scripts/build_rkffmpeg_whip.sh` (also in `github.com/Anirudh627/rkffmpeg-whip`). Copy it to
+the board (without carriage returns: `tr -d '\r' < build_rkffmpeg_whip.sh | ssh root@<board> 'cat > /tmp/build_rkffmpeg_whip.sh'`)
+and run it there as root:
+
+```sh
+bash /tmp/build_rkffmpeg_whip.sh all       # build, bundle, stage, test, install
+```
+
+or one step at a time: `build` (compile, 7.5 minutes measured on a quiet board), `bundle` (collect libraries), `stage` (assemble the folder),
+`test` (live-view command and a WHIP push; `BUNDLE=/home/antelao/rkffmpeg2 bash ... test` tests the installed folder),
+`install` (put it in place of the live `rkffmpeg2`, verified through the backend container; it puts the old files back by
+itself if its checks fail), `clean`. Settings are environment variables (`WORK`, `LIVE`, `CAMERA_URL`, `JOBS`, ...), listed
+in the script's header. `build`, `bundle`, `stage` and `test` were run end to end from nothing on 2026-10-11 (result in
+`FFMPEG_WHIP_TEST_RESULTS.md`, section 9). **A new board does not compile:** it downloads the finished bundle through
+`scripts/02_setup_rkffmpeg2.sh` (last section). The rest of this page is the detail of what the script does.
+
 ## Before you start
 
 | Need | Check |
@@ -19,7 +37,7 @@ only (VP8 and VP9 were rejected in the tests).
 | About 3 GB free on the data disk for the build container and output | `df -h /data` |
 | The existing `rkffmpeg2` and `rkdt` folders (`scripts/02_setup_rkffmpeg2.sh` installs them) | `ls /home/antelao/rkffmpeg2 /home/antelao/rkdt` |
 | The backend image `standard-backend` on the board (used for the tests) | `docker images standard-backend` |
-| About 25 to 30 minutes. The build uses 6 of 8 cores at the lowest priority; do it when the board is not busy | |
+| About 10 minutes in total (the full script run took 8 min 20 s on a quiet board; the first build, with a flaky clone and a busy board, took longer). The build uses 6 of 8 cores at the lowest priority; do it when the board is not busy | |
 
 Rules for every file you send from a Windows laptop: this repo's checkout may have CRLF line endings (git
 `core.autocrlf=true`). Send scripts with the `\r` removed, or `bash` fails with `set: pipefail: invalid option name`:
@@ -274,12 +292,14 @@ rm -rf /home/antelao/shared/ffmpeg-whip-build/out        # keep it if you want t
 
 Keep `rkffmpeg3/` and the backup until the new build has run in production for a while.
 
-## Making it the default for new boards (not done)
+## New boards (done)
 
-`scripts/02_setup_rkffmpeg2.sh` downloads `rkffmpeg2_rkdt.tar.gz` from a GitHub release of `hrithik-naik/rk3588-migration`.
-To use this build: pack `rkffmpeg3` (the contents of `/opt/rkffmpeg2`) with `rkdt` as the same layout, upload it as a
-new release asset (for example `v2`), and point the script at it. Boards that were set up earlier keep what they have.
-Upload and script change need someone with access to that repository; they were not done.
+`scripts/02_setup_rkffmpeg2.sh` downloads `rkffmpeg2_rkdt.tar.gz` from `github.com/Anirudh627/rkffmpeg-whip` (a file on
+`main`), checks its SHA-256 and installs it. To publish a newer build: make the archive from `rkffmpeg3` (folders
+`rkffmpeg2/` = the contents of `rkffmpeg3`, and `rkdt/`), put it in that repository, and change `RELEASE_SHA256`
+(and `RELEASE_URL` if the place changed) in the script. A board with no internet:
+`RKFFMPEG2_ARCHIVE=/path/to/rkffmpeg2_rkdt.tar.gz bash scripts/02_setup_rkffmpeg2.sh`. `setup_all.sh` runs it as step 3;
+boards that still have the older bundle without `whip` are upgraded the next time it runs.
 
 ## Known limits
 

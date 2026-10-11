@@ -3,7 +3,7 @@
 # Builds the Rockchip ffmpeg with the whip muxer (OpenSSL) and libvpx, tests it, and installs it in place of the
 # rkffmpeg2 that DeepInsight's live view uses. One script, run ON THE BOARD as root:
 #
-#   bash build_rkffmpeg_whip.sh build     compile it in a throwaway ubuntu:22.04 container (about 25 minutes)
+#   bash build_rkffmpeg_whip.sh build     compile it in a throwaway ubuntu:22.04 container (7.5 minutes measured on a quiet board)
 #   bash build_rkffmpeg_whip.sh bundle    collect the shared libraries it needs (libssl, libvpx, ...)
 #   bash build_rkffmpeg_whip.sh stage     assemble the folder to install: old wrappers and old MPP/RGA libs + new ffmpeg
 #   bash build_rkffmpeg_whip.sh test      run the live view's command and a WHIP push with the staged build
@@ -159,7 +159,7 @@ INNER
 # ---------------------------------------------------------------------------------------------------------------
 step_stage() {
   [ -d "$WORK/out/bundle-libs" ] || die "run bundle first"
-  [ -d "$LIVE/lib" ] || die "no $LIVE/lib (scripts/02_setup_rkffmpeg2.sh installs the old bundle first)"
+  [ -d "$LIVE/lib" ] || die "no $LIVE/lib (scripts/02_setup_rkffmpeg2.sh installs the bundle first)"
   local S="$WORK/rkffmpeg3"
   rm -rf "$S"
   cp -a "$LIVE" "$S"
@@ -251,7 +251,9 @@ step_install() {
     want="$(md5sum "$NEW/ffmpeg" | cut -d' ' -f1)"
     got="$($C md5sum /opt/rkffmpeg2/ffmpeg | cut -d' ' -f1)"
     if [ "$want" = "$got" ]; then echo "  backend sees the new ffmpeg: ok"; else echo "  backend does NOT see the new ffmpeg"; fail=1; fi
-    if $C /opt/rkffmpeg2/ffmpeg-wrap -hide_banner -muxers 2>&1 | grep -q whip; then echo "  whip muxer visible in the backend: ok"; else echo "  no whip muxer in the backend"; fail=1; fi
+    local muxers
+    muxers="$($C /opt/rkffmpeg2/ffmpeg-wrap -hide_banner -muxers 2>&1 || true)"
+    if grep -q whip <<<"$muxers"; then echo "  whip muxer visible in the backend: ok"; else echo "  no whip muxer in the backend"; fail=1; fi
     if [ -n "$CAMERA_URL" ]; then
       $C /opt/rkffmpeg2/ffmpeg-wrap -nostdin -loglevel warning -rtsp_transport tcp -timeout 5000000 -hwaccel rkmpp -hwaccel_output_format drm_prime \
         -c:v h264_rkmpp -t 10 -i "$CAMERA_URL" -vf scale_rkrga=w=1280:h=-2:format=nv12:force_original_aspect_ratio=decrease \

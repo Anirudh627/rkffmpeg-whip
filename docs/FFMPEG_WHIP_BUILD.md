@@ -49,8 +49,11 @@ A native build on the board, inside a throwaway `ubuntu:22.04` (aarch64) contain
 4. Collect the shared libraries ffmpeg needs (libssl, libcrypto, libvpx, libdrm, libstdc++, libgcc_s) into
    `/out/bundle-libs`.
 
-The build itself took roughly 25 minutes of wall time on the board with cameras running. (Estimate from the
-timestamps of the runs, not a stopwatch.)
+Build time: the first build took longer than later ones (an estimate from timestamps: about 25 minutes, with gitee
+dropping connections, three restarts and cameras running). Run again from nothing with the single script on a quiet
+board, `build` took 7.5 minutes (15:00:37 to 15:08:08) and `build`, `bundle`, `stage` and `test` together 8 min 20 s.
+**That rebuild produced an `ffmpeg` byte for byte identical to the published one** (md5 `12cf735c2250ca375d41db14b818dc36`
+both), so the build is reproducible from the sources and flags in `build_rkffmpeg_whip.sh`.
 
 ## What went wrong, and what was done
 
@@ -82,9 +85,49 @@ that wants `-n N`. The board's host `bash` is real bash 5.1, but `sh` and tools 
 Start from `build.sh`, but use the fixes in the table: GitHub mirror first, `bundle.sh` for the libraries, strip
 CRLF, and after the install replace `librockchip_mpp*` and `librga*` in the bundle with the ones from `rkffmpeg2`.
 
+## Published, and how new boards get it (done 2026-10-11)
+
+- The bundle is published in `https://github.com/Anirudh627/rkffmpeg-whip` as a plain file in `main`
+  (`rkffmpeg2_rkdt.tar.gz`, 17.8 MB, SHA-256 `a70028b69c893a7ac4fa107ef5093d640b8b2c3d27171c0cdb6d67dd94c5bc01`),
+  together with `build_rkffmpeg_whip.sh` and copies of these docs. It is a file in the repository and not a GitHub release,
+  because no `gh` login was available; the download link is `.../raw/main/rkffmpeg2_rkdt.tar.gz`.
+- `scripts/02_setup_rkffmpeg2.sh` now downloads that file, checks the SHA-256 before extracting, and accepts
+  `RELEASE_URL`, `RELEASE_SHA256` and `RKFFMPEG2_ARCHIVE` (a local file, for a board without internet). The earlier source
+  was the `hrithik-naik/rk3588-migration` release `v1` (the bundle without `whip`).
+- A fresh board therefore never compiles: it downloads the 18 MB file. Compiling (`build_rkffmpeg_whip.sh`) is only
+  needed to produce a new bundle.
+- Because the file lives on `main`, pushing a newer build changes what the link serves; the checksum in the script
+  protects against a mismatch, so update the script's checksum together with the file.
+
+### Clean-install test on the board (2026-10-11)
+
+All ffmpeg builds made during the work were removed (the live `rkffmpeg2` emptied but the folder kept, because the backend
+container has it mounted; the staged copy, the compile output, the archive and the build container deleted; the
+operating system's own `/usr/bin/ffmpeg` was not touched). Then `scripts/02_setup_rkffmpeg2.sh` was run: it downloaded
+the file from GitHub, verified it and installed it.
+
+| Check | Result |
+|---|---|
+| Installed `ffmpeg` checksum against the one inside the archive | identical (`12cf735c...`) |
+| The backend container's view of the file | same checksum; `ffmpeg version d90e3a1`; `whip`, `h264_rkmpp`, `libvpx`, `libvpx-vp9` present |
+| Live-view command on the installed folder (`build_rkffmpeg_whip.sh test`, `BUNDLE=/home/antelao/rkffmpeg2`) | `h264, Constrained Baseline, 1280x854, level 42` |
+| WHIP push with the hardware encoder to MediaMTX | `h264, Constrained Baseline, 854x570` |
+
+Then DeepInsight's own live view was checked on the installed folder (14:45): the `cam-001` ffmpeg that had been running
+was stopped and the operator reloaded the live view; DeepInsight started a new one.
+
+| Check | Result |
+|---|---|
+| Input | `rtsp://192.168.1.69:8080/h264.sdp` |
+| Runs from | `/opt/rkffmpeg2/ffmpeg`, not a deleted file; the process's executable has the same checksum as the installed file (`12cf735c...`) |
+| Libraries | 8 `libssl`/`libvpx` mappings, so it is the WHIP build |
+| `cam-001/raw` in MediaMTX | H.264 Constrained Baseline, level 4.2, 1280x854, 30 fps; 141 frames in 5 seconds |
+| Backend log for `cam-001` | no non-`mpp` lines (no errors) |
+
+Not checked: the picture in a browser, the annotated stream for that camera, long runs, and Cloudflare.
+
 ## Not done
 
-- `scripts/02_setup_rkffmpeg2.sh` still downloads the old `v1` release. A new tarball would have to be uploaded as a
-  release asset first (not done: that is outside this repo), then the script pointed at it.
 - The MPP mismatch (item 6) was worked around, not explained. A future rebuild of MPP should be checked against the
   kernel driver version.
+- The release is a file on `main`, not a GitHub release with an attached asset; switch the link if you create one.
