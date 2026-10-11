@@ -178,11 +178,14 @@ step_stage() {
 # (standard/docs/SLIM_SDK_ISSUES_LOG.md item 1).
 # ---------------------------------------------------------------------------------------------------------------
 step_test() {
-  [ -d "$WORK/rkffmpeg3" ] || die "run stage first"
+  # BUNDLE: the folder to test. Default is the staged one; BUNDLE=/home/antelao/rkffmpeg2 tests what is installed.
+  local B="${BUNDLE:-$WORK/rkffmpeg3}"
+  [ -d "$B/lib" ] || die "no bundle at $B (run stage first, or set BUNDLE)"
+  mkdir -p "$WORK"
   if [ ! -s "$WORK/real.mp4" ]; then
     [ -n "$CAMERA_URL" ] || die "no $WORK/real.mp4: put an H.264 clip there, or set CAMERA_URL to record one"
     log "Recording 30 s from $CAMERA_URL (no re-encode)"
-    LD_LIBRARY_PATH="$WORK/out/lib:$WORK/out/bundle-libs" "$WORK/out/bin/ffmpeg" -nostdin -loglevel error -rtsp_transport tcp \
+    LD_LIBRARY_PATH="$B/lib" "$B/ffmpeg" -nostdin -loglevel error -rtsp_transport tcp \
       -timeout 8000000 -i "$CAMERA_URL" -t 30 -an -c:v copy -y "$WORK/real.mp4"
   fi
   cat > "$WORK/inner_test.sh" <<'INNER'
@@ -203,11 +206,11 @@ sleep 6
 echo "RESULT_WHIP:$($P -v error -rw_timeout 6000000 -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name,profile,width,height -of csv=p=0 "$RTSP/test_whip" 2>&1 | head -n 1)"
 wait
 INNER
-  log "Testing the staged bundle (about 40 seconds)"
+  log "Testing the bundle at $B (about 40 seconds)"
   local out
   # shellcheck disable=SC2086
   out="$(docker run --rm --network host --entrypoint bash $DEVICES -v "$WORK":/data:ro -v "$RKDT":/opt/rkdt:ro \
-    -v "$WORK/rkffmpeg3":/opt/rkffmpeg2:ro "$BACKEND_IMAGE" /data/inner_test.sh "$MEDIAMTX_RTSP" "$MEDIAMTX_WHIP" 2>&1)" || true
+    -v "$B":/opt/rkffmpeg2:ro "$BACKEND_IMAGE" /data/inner_test.sh "$MEDIAMTX_RTSP" "$MEDIAMTX_WHIP" 2>&1)" || true
   local live whip
   live="$(echo "$out" | sed -n 's/^RESULT_LIVE://p' | head -n 1)"
   whip="$(echo "$out" | sed -n 's/^RESULT_WHIP://p' | head -n 1)"
